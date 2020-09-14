@@ -20,11 +20,16 @@ def is_interpolation(value):
 
 
 def is_escaped_interpolation(value):
+    return isinstance(value, string_types) and '{{`' in value and '`}}' in value
+
+
+def is_full_escaped_interpolation(value):
     return isinstance(value, string_types) and value.startswith('{{`') and value.endswith('`}}')
 
 
 def is_full_interpolation(value):
-    return is_interpolation(value) and value.startswith('{{') and value.endswith('}}')
+    return is_interpolation(value) and value.startswith('{{') and value.endswith('}}') \
+           and not is_full_escaped_interpolation(value)
 
 
 def remove_white_spaces(value):
@@ -224,13 +229,25 @@ class FullBlobInjector(object):
         return resolved_value if is_valid_value else line
 
     def clean(self, line):
-        if not is_escaped_interpolation(line):
-            return line
+        # {{` something {{ value }} `}}
+        if is_full_escaped_interpolation(line):
+            resolved_value = self.get_value_from_escaping(line)
+            is_valid_value = resolved_value is not None
 
-        resolved_value = self.get_value_from_escaping(line)
-        is_valid_value = resolved_value is not None
+            return resolved_value if is_valid_value else line
 
-        return resolved_value if is_valid_value else line
+        # before {{` {{value}} `}} after
+        elif is_escaped_interpolation(line):
+            prefix = line[0:line.find('{{`')]
+            escaping_string = line[line.find('{{`'):line.find('`}}') + 3]
+            suffix = line[line.find('`}}') + 3:len(line)]
+            resolved_value = prefix + self.get_value_from_escaping(escaping_string) + suffix
+            is_valid_value = resolved_value is not None
+
+            return resolved_value if is_valid_value else line
+
+        # nothing to clean
+        return line
 
     @staticmethod
     def get_inner_value(keys, data):
@@ -255,3 +272,4 @@ class FullBlobInjector(object):
         line = line[3:-3]
 
         return line
+
